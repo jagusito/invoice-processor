@@ -1,0 +1,10 @@
+{
+    "invoice_folder": "invoices",
+    "processed_folder": "processed",
+    "failed_folder": "failed",
+    "batch_size": 50,
+    "logging": {
+        "level": "INFO",
+        "file": "logs/processing.log"
+    }
+}
