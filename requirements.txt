@@ -17,23 +17,19 @@ openpyxl==3.1.2
 snowflake-connector-python==3.5.0
 snowflake-sqlalchemy==1.4.7
 
-# Azure Storage (NEW)
+# Azure Storage
 azure-storage-blob==12.19.0
 
 # Additional Dependencies for PDF processing
 opencv-python==4.8.1.78
 Pillow==10.1.0
 
-# HTTP and Utilities
+# HTTP and Utilities - Compatible versions
 requests==2.31.0
-urllib3==2.1.0
-
-# Date/Time handling
+urllib3>=1.21.1,<2.0.0
 python-dateutil==2.8.2
 pytz==2023.3
-
-# Logging and Configuration
 python-dotenv==1.0.0
 
-# WSGI Server for Production
+# Production Server
 gunicorn==21.2.0
