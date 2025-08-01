@@ -8,13 +8,13 @@ pdfplumber==0.10.3
 camelot-py[cv]==0.11.0
 tabula-py==2.8.2
 
-# Data Processing
-pandas==2.1.3
+# Data Processing - Compatible pandas version
+pandas>=1.0.0,<2.1.0
 numpy==1.25.2
 openpyxl==3.1.2
 
 # Database Connectivity - COMPLETE SNOWFLAKE SETUP
-snowflake-connector-python==3.5.0
+snowflake-connector-python[pandas]==3.5.0
 snowflake-sqlalchemy==1.4.7
 snowflake-snowpark-python[pandas]==1.11.1
 
