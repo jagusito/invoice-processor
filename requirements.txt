@@ -1,36 +1,4 @@
-# Web Framework
 Flask
-Werkzeug
-
-# PDF Processing Libraries
-PyMuPDF
-pdfplumber
-camelot-py[cv]
-tabula-py
-
-# Data Processing - No version pins, let pip resolve
-pandas
-numpy
-openpyxl
-
-# Database Connectivity
-snowflake-connector-python[pandas]
-snowflake-sqlalchemy
-snowflake-snowpark-python[pandas]
-
-# Azure Storage
-azure-storage-blob
-
-# Additional Dependencies
-opencv-python
-Pillow
-
-# HTTP and Utilities
-requests
-urllib3
-python-dateutil
-pytz
-python-dotenv
-
-# Production Server
 gunicorn
+snowflake-snowpark-python[pandas]
+azure-storage-blob
