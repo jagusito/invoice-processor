@@ -1,36 +1,36 @@
 # Web Framework
-Flask==2.3.3
-Werkzeug==2.3.7
+Flask
+Werkzeug
 
 # PDF Processing Libraries
-PyMuPDF==1.23.8
-pdfplumber==0.10.3
-camelot-py[cv]==0.11.0
-tabula-py==2.8.2
+PyMuPDF
+pdfplumber
+camelot-py[cv]
+tabula-py
 
-# Data Processing - Compatible pandas version
-pandas>=1.0.0,<2.1.0
-numpy==1.25.2
-openpyxl==3.1.2
+# Data Processing - No version pins, let pip resolve
+pandas
+numpy
+openpyxl
 
-# Database Connectivity - COMPLETE SNOWFLAKE SETUP
-snowflake-connector-python[pandas]==3.5.0
-snowflake-sqlalchemy==1.4.7
-snowflake-snowpark-python[pandas]==1.11.1
+# Database Connectivity
+snowflake-connector-python[pandas]
+snowflake-sqlalchemy
+snowflake-snowpark-python[pandas]
 
 # Azure Storage
-azure-storage-blob==12.19.0
+azure-storage-blob
 
-# Additional Dependencies for PDF processing
-opencv-python==4.8.1.78
-Pillow==10.1.0
+# Additional Dependencies
+opencv-python
+Pillow
 
-# HTTP and Utilities - Compatible versions
-requests==2.31.0
-urllib3>=1.21.1,<2.0.0
-python-dateutil==2.8.2
-pytz==2023.3
-python-dotenv==1.0.0
+# HTTP and Utilities
+requests
+urllib3
+python-dateutil
+pytz
+python-dotenv
 
 # Production Server
-gunicorn==21.2.0
+gunicorn
