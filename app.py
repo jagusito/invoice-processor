@@ -302,6 +302,12 @@ def processing_logs_page():
     """
 
 # API Endpoints
+
+@app.route('/health')
+def health():
+    return "OK"
+
+
 @app.route('/api/process-folder', methods=['POST'])
 def process_folder_api():
     """API endpoint to trigger folder processing"""
