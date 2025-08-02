@@ -166,7 +166,7 @@ def get_vendor_mappings_from_snowflake():
             mappings.append({
                 "mapping_id": row[0],
                 "entity_id": row[1],
-                "vendor_id": row[2],  # This is vendor_name
+                "vendor_name": row[2],  # This is vendor_name
                 "entity_vendor_code": row[3],
                 "status": row[4],
                 "created_at": str(row[5]) if row[5] else None,
@@ -186,13 +186,13 @@ def add_vendor_mapping_to_snowflake(mapping_data):
     """Add new vendor mapping to Snowflake"""
     try:
         # Validate required fields
-        if not all([mapping_data.get('entity_id'), mapping_data.get('vendor_id'), 
+        if not all([mapping_data.get('entity_id'), mapping_data.get('vendor_name'), 
                    mapping_data.get('entity_vendor_code')]):
             return {"success": False, "error": "Entity, vendor, and vendor code are required"}
         
         # Clean input
         entity_id = mapping_data['entity_id'].strip()
-        vendor_name = mapping_data['vendor_id'].strip()  # This is actually vendor_name
+        vendor_name = mapping_data['vendor_name'].strip()  # This is actually vendor_name
         vendor_code = mapping_data['entity_vendor_code'].strip()
         
         # Check for duplicate mapping
