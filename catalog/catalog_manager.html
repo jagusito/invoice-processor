@@ -505,7 +505,9 @@
                                 <option value="SGD">SGD - Singapore Dollar</option>
                                 <option value="JPY">JPY - Japanese Yen</option>
                                 <option value="CHF">CHF - Swiss Franc</option>
+                                <option value="PGK">PGK - Papua New Guinean Kina</option>
                                 <option value="CNY">CNY - Chinese Yuan</option>
+								
                             </select>
                         </div>
                     </div>
@@ -628,7 +630,7 @@
     <script>
         // Configuration - Use API mode for Snowflake integration
         const OFFLINE_MODE = false;
-        const API_BASE_URL = 'http://localhost:5000/catalog/api';  // Adjust port as needed
+        const API_BASE_URL = '/catalog/api';  // Adjust port as needed
 
         // Global variables
         let currentEditId = null;
@@ -749,13 +751,13 @@
             
             const mapping = {
                 entity_id: formData.get('mappingEntity'),
-                vendor_id: formData.get('mappingVendor'),
+                vendor_name: formData.get('mappingVendor'),
                 entity_vendor_code: formData.get('mappingVendorCode'),
                 status: formData.get('mappingStatus')
             };
 
             // Validate required fields
-            if (!mapping.entity_id || !mapping.vendor_id || !mapping.entity_vendor_code) {
+            if (!mapping.entity_id || !mapping.vendor_name || !mapping.entity_vendor_code) {
                 showAlert('mappingsAlert', 'Entity, vendor, and vendor code are required!', 'error');
                 return;
             }
@@ -815,7 +817,7 @@
             tbody.innerHTML = mappings.map(mapping => `
                 <tr>
                     <td>${mapping.entity_name || mapping.entity_id}</td>
-                    <td>${mapping.vendor_name || mapping.vendor_id}</td>
+                    <td>${mapping.vendor_name || mapping.vendor_name}</td>
                     <td><strong>${mapping.entity_vendor_code}</strong></td>
                     <td>${mapping.vendor_currency || ''}</td>
                     <td><span class="status-badge ${mapping.status === 'Active' ? 'status-active' : 'status-inactive'}">${mapping.status}</span></td>
@@ -1184,6 +1186,7 @@
                                     <option value="SGD" ${fieldValue === 'SGD' ? 'selected' : ''}>SGD - Singapore Dollar</option>
                                     <option value="JPY" ${fieldValue === 'JPY' ? 'selected' : ''}>JPY - Japanese Yen</option>
                                     <option value="CHF" ${fieldValue === 'CHF' ? 'selected' : ''}>CHF - Swiss Franc</option>
+                                    <option value="PGK" ${fieldValue === 'PGK' ? 'selected' : ''}>PGK - Papua New Guinean Kina</option>									
                                     <option value="CNY" ${fieldValue === 'CNY' ? 'selected' : ''}>CNY - Chinese Yuan</option>
                                 </select>
                             </div>
