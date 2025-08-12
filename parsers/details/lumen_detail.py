@@ -1,7 +1,7 @@
 # parsers/details/lumen_detail.py
 """
-Lumen Detail Parser
-Extracts line items from Lumen/Level3 invoices including MRC blocks, Credits, and Account Level Charges
+Enhanced Lumen Detail Parser
+Extracts line items from Lumen/Level3 invoices including Finance Charges scenarios
 """
 
 import fitz  # PyMuPDF
@@ -18,11 +18,12 @@ logger = logging.getLogger(__name__)
 def extract_equinix_items(pdf_path: str, header_data: Dict[str, Any]) -> pd.DataFrame:
     """
     Extract detail line items from Lumen invoice
+    Enhanced to handle Finance Charges scenarios
     Note: Function name kept as 'extract_equinix_items' for consistency with registry system
     
     Args:
         pdf_path: Path to Lumen PDF invoice
-        header_data: Header context data (contains invoice_id, ban, etc.)
+        header_data: Header context data (contains invoice_id, ban, finance charges info, etc.)
         
     Returns:
         DataFrame with detail records in standard format
@@ -34,16 +35,64 @@ def extract_equinix_items(pdf_path: str, header_data: Dict[str, Any]) -> pd.Data
         invoice_id = header_data.get('invoice_id')
         ban = header_data.get('ban')
         invoice_date = header_data.get('billing_period')
+        has_finance_charges_only = header_data.get('has_finance_charges_only', False)
+        has_zero_current_charges = header_data.get('has_zero_current_charges', False)
+        finance_charges = header_data.get('finance_charges', 0.0)
+        current_charges = header_data.get('current_charges', 0.0)
         
         logger.info(f"   Invoice ID: {invoice_id}")
         logger.info(f"   BAN: {ban}")
         logger.info(f"   Invoice Date: {invoice_date}")
+        logger.info(f"   Current Charges: ${current_charges:,.2f}")
+        logger.info(f"   Finance Charges: ${finance_charges:,.2f}")
+        logger.info(f"   Finance Charges Only: {has_finance_charges_only}")
+        logger.info(f"   Zero Current Charges: {has_zero_current_charges}")
         
-        # Extract all detail records using the comprehensive logic
+        # Enhanced: Handle Finance Charges Only scenario
+        if has_finance_charges_only:
+            logger.info("📄 Processing Finance Charges Only scenario")
+            finance_records = create_finance_charges_record(invoice_id, ban, invoice_date, finance_charges)
+            if finance_records:
+                standardized_df = standardize_lumen_records(pd.DataFrame([finance_records]), header_data)
+                logger.info(f"✅ Created 1 Finance Charges record: ${finance_charges:,.2f}")
+                return standardized_df
+            else:
+                logger.warning("Failed to create Finance Charges record")
+                return pd.DataFrame()
+        
+        # Enhanced: Handle Zero Current Charges scenario (no finance charges, no line items)
+        if has_zero_current_charges:
+            logger.info("📄 Processing Zero Current Charges scenario")
+            zero_charges_record = create_zero_current_charges_record(invoice_id, ban, invoice_date)
+            if zero_charges_record:
+                standardized_df = standardize_lumen_records(pd.DataFrame([zero_charges_record]), header_data)
+                logger.info(f"✅ Created 1 Zero Current Charges record: $0.00")
+                return standardized_df
+            else:
+                logger.warning("Failed to create Zero Current Charges record")
+                return pd.DataFrame()
+        
+        # Original logic: Extract comprehensive details (MRC, Credits, Account Level)
+        logger.info("📄 Processing standard invoice with line items")
         all_records = extract_lumen_comprehensive_details(pdf_path, invoice_id, ban, invoice_date)
         
         if all_records.empty:
-            logger.warning("No detail records extracted")
+            logger.warning("No detail records extracted from standard parsing")
+            # Fallback: Check for finance charges or create zero charges record
+            if finance_charges > 0.0:
+                logger.info("📄 Fallback: Creating Finance Charges record")
+                finance_records = create_finance_charges_record(invoice_id, ban, invoice_date, finance_charges)
+                if finance_records:
+                    standardized_df = standardize_lumen_records(pd.DataFrame([finance_records]), header_data)
+                    logger.info(f"✅ Created fallback Finance Charges record: ${finance_charges:,.2f}")
+                    return standardized_df
+            else:
+                logger.info("📄 Fallback: Creating Zero Current Charges record")
+                zero_charges_record = create_zero_current_charges_record(invoice_id, ban, invoice_date)
+                if zero_charges_record:
+                    standardized_df = standardize_lumen_records(pd.DataFrame([zero_charges_record]), header_data)
+                    logger.info(f"✅ Created fallback Zero Current Charges record: $0.00")
+                    return standardized_df
             return pd.DataFrame()
         
         # Convert to standard format
@@ -61,6 +110,77 @@ def extract_equinix_items(pdf_path: str, header_data: Dict[str, Any]) -> pd.Data
     except Exception as e:
         logger.error(f"❌ Error extracting Lumen details: {e}")
         return pd.DataFrame()
+
+def create_finance_charges_record(invoice_id: str, ban: str, invoice_date: str, finance_charges: float) -> Dict[str, Any]:
+    """
+    Create a single Finance Charges record
+    
+    Args:
+        invoice_id: Invoice identifier
+        ban: Billing account number
+        invoice_date: Invoice date
+        finance_charges: Finance charges amount
+        
+    Returns:
+        Dictionary with Finance Charges record data
+    """
+    try:
+        if finance_charges <= 0.0:
+            logger.warning("Finance charges amount is zero or negative")
+            return None
+        
+        record = {
+            "invoice_id": invoice_id,
+            "item_number": "Finance Charges",
+            "ban": ban,
+            "usoc": "Finance Charges",
+            "description": "Finance Charges",
+            "billing_period": invoice_date,
+            "units": 1,
+            "amount": finance_charges,
+            "tax": 0.0,  # No tax on finance charges
+            "total": finance_charges  # Total equals amount (no tax)
+        }
+        
+        logger.info(f"Created Finance Charges record: ${finance_charges:,.2f}")
+        return record
+        
+    except Exception as e:
+        logger.error(f"Error creating Finance Charges record: {e}")
+        return None
+
+def create_zero_current_charges_record(invoice_id: str, ban: str, invoice_date: str) -> Dict[str, Any]:
+    """
+    Create a zero Current Charges record for invoices with no current charges and no finance charges
+    
+    Args:
+        invoice_id: Invoice identifier
+        ban: Billing account number
+        invoice_date: Invoice date
+        
+    Returns:
+        Dictionary with Zero Current Charges record data
+    """
+    try:
+        record = {
+            "invoice_id": invoice_id,
+            "item_number": "Current Charges",
+            "ban": ban,
+            "usoc": "Current Charges",
+            "description": "Current Charges",
+            "billing_period": invoice_date,
+            "units": 1,
+            "amount": 0.0,  # Zero amount
+            "tax": 0.0,     # Zero tax
+            "total": 0.0    # Zero total
+        }
+        
+        logger.info(f"Created Zero Current Charges record: $0.00")
+        return record
+        
+    except Exception as e:
+        logger.error(f"Error creating Zero Current Charges record: {e}")
+        return None
 
 def extract_lumen_comprehensive_details(pdf_path: str, invoice_id: str, ban: str, invoice_date: str) -> pd.DataFrame:
     """
@@ -423,9 +543,11 @@ def standardize_lumen_records(records_df: pd.DataFrame, header_data: Dict[str, A
         'amount': 0.0,
         'tax': 0.0,
         'total': 0.0,
-        'currency': 'USD',
-        'vendor_name': 'Lumen Technologies',
+        'currency': header_data.get('currency', 'USD'),
+        'vendor_name': header_data.get('vendor', 'Lumen Technologies'),
         'source_file': header_data.get('source_file', ''),
+        'invoiced_bu': header_data.get('invoiced_bu', ''),
+        'vendorno': header_data.get('vendorno', ''),
         'extracted_at': pd.Timestamp.now(),
         'disputed': False,
         'comment': '',
@@ -528,24 +650,43 @@ if __name__ == "__main__":
     test_file = "invoices/sample.lumen.pdf"  # Update with actual test file
     
     if os.path.exists(test_file):
-        print("🧪 Testing Lumen Detail Parser")
+        print("🧪 Testing Enhanced Lumen Detail Parser")
         print("=" * 50)
         
-        # Mock header data for testing
-        mock_header = {
+        # Mock header data for testing Finance Charges scenario
+        mock_header_finance = {
             'invoice_id': 'TEST123',
             'ban': 'BAN001',
             'billing_period': '2025-01-01',
-            'source_file': 'test.pdf'
+            'source_file': 'test.pdf',
+            'current_charges': 0.0,
+            'finance_charges': 155.89,
+            'has_finance_charges_only': True
         }
         
-        detail_df = extract_equinix_items(test_file, mock_header)
+        # Mock header data for testing regular scenario
+        mock_header_regular = {
+            'invoice_id': 'TEST456',
+            'ban': 'BAN002',
+            'billing_period': '2025-01-01',
+            'source_file': 'test.pdf',
+            'current_charges': 1500.0,
+            'finance_charges': 0.0,
+            'has_finance_charges_only': False
+        }
         
-        if not detail_df.empty:
-            print(f"✅ Detail extraction successful! {len(detail_df)} records")
-            print("\n📋 Sample records:")
-            print(detail_df.head().to_string())
-        else:
-            print("❌ Detail extraction failed!")
+        print("🧪 Testing Finance Charges scenario:")
+        detail_df_finance = extract_equinix_items(test_file, mock_header_finance)
+        
+        print("\n🧪 Testing Regular charges scenario:")
+        detail_df_regular = extract_equinix_items(test_file, mock_header_regular)
+        
+        if not detail_df_finance.empty:
+            print(f"✅ Finance Charges extraction successful! {len(detail_df_finance)} records")
+            print(detail_df_finance[['item_number', 'description', 'amount', 'tax', 'total']].to_string())
+        
+        if not detail_df_regular.empty:
+            print(f"✅ Regular extraction successful! {len(detail_df_regular)} records")
+            print(detail_df_regular.head().to_string())
     else:
         print(f"❌ Test file not found: {test_file}")

@@ -1,6 +1,7 @@
 # parsers/details/lumen_netherlands_detail.py
 """
-Lumen Netherlands Detail Parser - Final Clean Version
+Lumen Netherlands Detail Parser - FIXED VERSION (No Doubling)
+Fixed to properly identify service IDs and avoid duplicate records
 """
 
 import fitz  # PyMuPDF
@@ -44,7 +45,7 @@ def extract_equinix_items(pdf_path: str, header_data: Dict[str, Any]) -> pd.Data
         return pd.DataFrame()
 
 def extract_service_records(pdf_path: str, invoice_id: str, ban: str, invoice_date: str) -> List[Dict]:
-    """Extract service records - Clean version based on actual text structure"""
+    """Extract service records - FIXED to avoid doubling"""
     try:
         doc = fitz.open(pdf_path)
         records = []
@@ -66,11 +67,8 @@ def extract_service_records(pdf_path: str, invoice_id: str, ban: str, invoice_da
         logger.info(f"Processing {len(lines)} lines")
         
         for i, line in enumerate(lines):
-            # Service ID pattern: starts with letters, ends with numbers, 6+ chars
-            if (len(line) >= 6 and 
-                line[0].isalpha() and 
-                line[-1].isdigit() and 
-                line not in processed_ids):
+            # FIXED: More specific service ID pattern to avoid false positives
+            if is_valid_service_id(line) and line not in processed_ids:
                 
                 service_id = line
                 processed_ids.add(service_id)
@@ -110,7 +108,8 @@ def extract_service_records(pdf_path: str, invoice_id: str, ban: str, invoice_da
                     # Service description (other descriptive text lines)
                     elif (not next_line.startswith("Total") and 
                           len(next_line) > 2 and
-                          not next_line.isdigit()):
+                          not next_line.isdigit() and
+                          not next_line.startswith("PO#:")):  # FIXED: Exclude PO# lines from USOC
                         usoc_parts.append(next_line)
                         logger.info(f"Found service part: {next_line}")
                 
@@ -146,8 +145,47 @@ def extract_service_records(pdf_path: str, invoice_id: str, ban: str, invoice_da
             doc.close()
         return []
 
+def is_valid_service_id(line: str) -> bool:
+    """
+    FIXED: More specific logic to identify real service IDs
+    Avoids false positives like "Page 5 of 7" and "PO#: 2008-314"
+    """
+    if len(line) < 6:
+        return False
+    
+    # Exclude common false positives
+    false_positives = [
+        "Page ",           # "Page 5 of 7"
+        "PO#:",           # "PO#: 2008-314"
+        "Total ",         # "Total AMSTERDAM"
+        "Invoice ",       # "Invoice Number"
+        "Billing ",       # "Billing Account Number"
+        "Service ID",     # Header text
+        "Description",    # Header text
+        "Billing Period", # Header text
+        "Units",          # Header text
+        "Total",          # Header text
+    ]
+    
+    for false_positive in false_positives:
+        if line.startswith(false_positive):
+            logger.debug(f"Excluding false positive: {line}")
+            return False
+    
+    # Real service ID pattern: starts with letters, ends with numbers, no spaces, no colons
+    if (line[0].isalpha() and 
+        line[-1].isdigit() and 
+        " " not in line and      # No spaces (excludes "Page 5 of 7")
+        ":" not in line and      # No colons (excludes "PO#: 2008-314")
+        len(line) >= 8):         # Reasonable minimum length for service IDs
+        
+        logger.debug(f"Valid service ID pattern: {line}")
+        return True
+    
+    return False
+
 def standardize_records(records_df: pd.DataFrame, header_data: Dict[str, Any]) -> pd.DataFrame:
-    """Convert to standard format"""
+    """Convert to standard format - UNCHANGED"""
     if records_df.empty:
         return pd.DataFrame()
     
@@ -187,5 +225,5 @@ def standardize_records(records_df: pd.DataFrame, header_data: Dict[str, Any]) -
 
 # Test function
 if __name__ == "__main__":
-    print("🧪 Netherlands Lumen Detail Parser - Final Clean Version")
+    print("🧪 Netherlands Lumen Detail Parser - FIXED VERSION (No Doubling)")
     print("✅ Parser loads without syntax errors")
