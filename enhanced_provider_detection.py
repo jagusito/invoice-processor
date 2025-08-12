@@ -1,4 +1,4 @@
-# enhanced_provider_detection.py - FIXED VERSION with scoring
+# enhanced_provider_detection.py - UPDATED with Vodafone UK support
 import fitz  # PyMuPDF
 import re
 import os
@@ -45,17 +45,24 @@ class EnhancedProviderDetection:
                 'currency': 'USD',
                 'vendor_name': 'Lumen Technologies'
             },
-            'vodafone': {
-                'header_indicators': ['Vodafone', 'Vodafone Business'],
-                'currency': 'GBP',
-                'vendor_name': 'Vodafone Business'
-            },
             
-            #'digital_realty': {
-            #    'header_indicators': ['Digital London Ltd', 'Digital Realty', 'Interxion'],
-            #   'currency': 'GBP',
-            #    'vendor_name': 'Digital London Ltd.'
-            #},            
+            # UPDATED: Enhanced Vodafone detection with UK branch support
+            'vodafone_uk': {
+                'header_indicators': [
+                    'Vodafone Business UK', 'Your registered address:', 
+                    'Vodafone', 'GBP', 'United Kingdom'
+                ],
+                'currency': 'GBP',
+                'vendor_name': 'Vodafone Business UK'
+            },
+            # UPDATED: PNG branch detection with filename support
+            'vodafone_png': {
+                'header_indicators': [
+                    'Vodafone PNG Ltd', 'PNG', 'Papua New Guinea', 'Kina', 'PGK'
+                ],
+                'currency': 'PGK',  # Papua New Guinea Kina
+                'vendor_name': 'VODAFONE PNG'  # FIXED: Match catalog exactly
+            },
             
             'digital_realty_usa': {
                 'header_indicators': ['Teik - New York, LLC', 'Teik', 'New York', 'digitalrealty'],
@@ -101,8 +108,9 @@ class EnhancedProviderDetection:
         if ".lumen." in filename:
             return {'base_provider': 'lumen', 'needs_header_detection': False}
             
+        # UPDATED: Vodafone detection with branch support
         if ".vodafone." in filename:
-            return {'base_provider': 'vodafone', 'needs_header_detection': False}
+            return {'base_provider': 'vodafone', 'needs_header_detection': True}
             
         if ".interxion." in filename:
             return {'base_provider': 'digital_realty', 'needs_header_detection': True}
@@ -130,8 +138,8 @@ class EnhancedProviderDetection:
     
     def detect_vendor_variant(self, header_text: str, base_provider: str) -> Optional[str]:
         """
-        FIXED: Detect specific vendor variant using scoring system
-        Prioritizes more specific matches over generic ones
+        UPDATED: Detect specific vendor variant using scoring system
+        Added Vodafone UK/PNG branch detection
         """
         
         if base_provider == 'equinix':
@@ -162,7 +170,75 @@ class EnhancedProviderDetection:
                         }
                         
                         print(f"   {variant}: {found_indicators} → Score: {score}")
+            
+            # Return the variant with the highest score
+            if variant_scores:
+                best_variant = max(variant_scores.keys(), key=lambda v: variant_scores[v]['score'])
+                best_score = variant_scores[best_variant]['score']
+                print(f"   🎯 Best match: {best_variant} (score: {best_score})")
+                return best_variant
+            
+            # Default fallback to INC if no specific match
+            print(f"   🔄 No specific match found, defaulting to equinix_inc")
+            return 'equinix_inc'
+        
+        # UPDATED: Vodafone branch detection with PNG filename support
+        if base_provider == 'vodafone':
+            # Method 1: Filename-based routing (fastest) - ENHANCED for PNG detection
+            if hasattr(self, '_current_filename'):
+                filename = self._current_filename.lower()
+            else:
+                filename = ''
+            
+            # Check for specific branch indicators in filename
+            if 'uk' in filename or 'britain' in filename:
+                print(f"   🇬🇧 Filename indicates UK branch")
+                return 'vodafone_uk'
+            elif 'png' in filename or 'papua' in filename:  # FIXED: Will match .vodafone.png.pdf
+                print(f"   🇵🇬 Filename indicates Papua New Guinea branch")
+                return 'vodafone_png'
+            
+            # Method 2: Content-based analysis with scoring
+            variant_scores = {}
+            
+            for variant, config in self.vendor_patterns.items():
+                if variant.startswith('vodafone_'):
+                    indicators = config['header_indicators']
+                    found_indicators = [ind for ind in indicators if ind in header_text]
+                    
+                    if found_indicators:
+                        score = 0
+                        for indicator in found_indicators:
+                            # High score for exact company names and unique patterns
+                            if indicator in ['Vodafone Business UK', 'Your registered address:']:
+                                score += 10
+                            elif indicator in ['Vodafone PNG Ltd']:  # UPDATED for PNG
+                                score += 10
+                            # Medium score for country/currency indicators
+                            elif indicator in ['United Kingdom', 'Papua New Guinea', 'GBP', 'PGK', 'Kina']:
+                                score += 5
+                            # Low score for generic indicators
+                            elif indicator in ['Vodafone', 'PNG']:
+                                score += 2
+                            else:
+                                score += 3
                         
+                        variant_scores[variant] = {
+                            'score': score,
+                            'found_indicators': found_indicators
+                        }
+                        print(f"   {variant}: {found_indicators} → Score: {score}")
+            
+            # Return highest scoring variant
+            if variant_scores:
+                best_variant = max(variant_scores.keys(), key=lambda v: variant_scores[v]['score'])
+                print(f"   🎯 Best match: {best_variant}")
+                return best_variant
+            
+            # Default fallback to UK (most common)
+            print(f"   🔄 No specific match found, defaulting to vodafone_uk")
+            return 'vodafone_uk'
+        
         if base_provider == 'digital_realty':
             # Check filename patterns first
             if hasattr(self, '_current_filename'):
@@ -206,20 +282,8 @@ class EnhancedProviderDetection:
             
             # Default to USA
             return 'digital_realty_usa'
-                                
-            
-            # Return the variant with the highest score
-            if variant_scores:
-                best_variant = max(variant_scores.keys(), key=lambda v: variant_scores[v]['score'])
-                best_score = variant_scores[best_variant]['score']
-                print(f"   🎯 Best match: {best_variant} (score: {best_score})")
-                return best_variant
-            
-            # Default fallback to INC if no specific match
-            print(f"   🔄 No specific match found, defaulting to equinix_inc")
-            return 'equinix_inc'
         
-        # For non-equinix providers, return as-is
+        # For non-multi-branch providers, return as-is
         return base_provider
     
     def detect_entity_from_header(self, header_text: str) -> Optional[Dict]:
@@ -391,6 +455,9 @@ class EnhancedProviderDetection:
         """Complete detection with database lookups"""
         filename = os.path.basename(filepath)
         
+        # Store filename for use in vendor variant detection
+        self._current_filename = filename
+        
         provider_info = self.detect_provider_from_filename(filename)
         header_text = self.extract_header_text(filepath)
         
@@ -447,10 +514,10 @@ def identify_invoice_context(pdf_path: str) -> Dict:
     }
 
 if __name__ == "__main__":
-    # Test with Australia file
-    test_file = "invoices/1751534361.equinix.australia.pdf"
+    # Test with Vodafone UK file
+    test_file = "invoices/test.vodafone.uk.pdf"
     result = identify_invoice_context(test_file)
-    print(f"🎯 FIXED RESULT:")
+    print(f"🎯 VODAFONE UK TEST RESULT:")
     print(f"   Variant: {result['context']['vendor_variant']}")
     print(f"   Vendor: {result['vendor_name']}")
     print(f"   Currency: {result['currency']}")

@@ -1,16 +1,20 @@
-# fin_loader.py - Updated for Phase 2 with correct table names
+# fin_loader.py - IMPROVED VERSION with better error handling
 """
-Updated loader functions for Phase 2 separated architecture
+Updated loader functions for Phase 2 with correct table names and column filtering
 Uses INVOICE_HEADER_DUP and INVOICE_LINE_ITEMS_DETAILED_DUP tables
 """
 
 import pandas as pd
 from snowflake.snowpark import Session
 from typing import Dict, Any
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 def load_to_snowflake_header(session: Session, df_header: pd.DataFrame) -> bool:
     """
-    Load header data to INVOICE_HEADER_DUP table
+    Load header data to INVOICE_HEADER_DUP table with column filtering
     
     Args:
         session: Snowflake session
@@ -21,29 +25,68 @@ def load_to_snowflake_header(session: Session, df_header: pd.DataFrame) -> bool:
     """
     try:
         if df_header.empty:
-            print("Warning: Empty header DataFrame, skipping load")
+            logger.warning("Empty header DataFrame, skipping load")
             return False
-            
-        ## Next two lines inserted to delete record
-        invoice_id = df_header.iloc[0]['invoice_id']
-        session.sql(f"DELETE FROM INVOICE_HEADER_DUP WHERE INVOICE_ID = '{invoice_id}'").collect()
+        
+        # FIXED: Filter to only expected columns for INVOICE_HEADER_DUP (14 columns)
+        expected_columns = [
+            'invoice_id', 'ban', 'billing_period', 'vendor', 'source_file',
+            'invoice_total', 'created_at', 'transtype', 'batchno', 'vendorno',
+            'documentdate', 'invoiced_bu', 'processed', 'currency'
+        ]
+        
+        # Create filtered DataFrame with only expected columns
+        filtered_df = pd.DataFrame()
+        for col in expected_columns:
+            if col in df_header.columns:
+                filtered_df[col] = df_header[col]
+            else:
+                # Add missing columns with default values
+                if col == 'created_at':
+                    filtered_df[col] = pd.Timestamp.now()
+                elif col == 'processed':
+                    filtered_df[col] = 'N'
+                elif col == 'invoice_total':
+                    filtered_df[col] = 0.0
+                else:
+                    filtered_df[col] = None
+        
+        logger.info(f"📊 Header columns before filtering: {len(df_header.columns)}")
+        logger.info(f"📊 Header columns after filtering: {len(filtered_df.columns)}")
+        
+        # Delete existing record
+        invoice_id = filtered_df.iloc[0]['invoice_id']
+        try:
+            session.sql(f"DELETE FROM INVOICE_HEADER_DUP WHERE INVOICE_ID = '{invoice_id}'").collect()
+        except Exception as delete_error:
+            logger.warning(f"⚠️ Could not delete existing header record: {delete_error}")
                 
-        # Convert DataFrame to Snowpark DataFrame
-        snowpark_df = session.create_dataframe(df_header)
+        # Convert DataFrame to Snowpark DataFrame with error handling
+        try:
+            snowpark_df = session.create_dataframe(filtered_df)
+        except Exception as df_error:
+            logger.error(f"❌ Error creating Snowpark DataFrame for header: {df_error}")
+            logger.error(f"❌ DataFrame dtypes: {filtered_df.dtypes}")
+            logger.error(f"❌ DataFrame sample: {filtered_df.head(1).to_dict()}")
+            return False
         
-        # Write to INVOICE_HEADER_DUP table
-        snowpark_df.write.mode("append").save_as_table("INVOICE_HEADER_DUP")
-        
-        print(f"✅ Successfully loaded {len(df_header)} header record(s) to INVOICE_HEADER_DUP")
-        return True
+        # Write to INVOICE_HEADER_DUP table with error handling
+        try:
+            snowpark_df.write.mode("append").save_as_table("INVOICE_HEADER_DUP")
+            logger.info(f"✅ Successfully loaded {len(filtered_df)} header record(s) to INVOICE_HEADER_DUP")
+            return True
+        except Exception as write_error:
+            logger.error(f"❌ Error writing header to INVOICE_HEADER_DUP: {write_error}")
+            return False
         
     except Exception as e:
-        print(f"❌ Error loading header data to Snowflake: {e}")
+        logger.error(f"❌ Error loading header data to Snowflake: {e}")
+        logger.error(f"❌ DataFrame columns: {list(df_header.columns) if not df_header.empty else 'Empty DataFrame'}")
         return False
 
 def load_to_snowflake_detailed(session: Session, df_details: pd.DataFrame) -> bool:
     """
-    Load detail line items to INVOICE_LINE_ITEMS_DETAILED_DUP table
+    Load detail line items to INVOICE_LINE_ITEMS_DETAILED_DUP table with column filtering
     
     Args:
         session: Snowflake session
@@ -54,24 +97,63 @@ def load_to_snowflake_detailed(session: Session, df_details: pd.DataFrame) -> bo
     """
     try:
         if df_details.empty:
-            print("Warning: Empty details DataFrame, skipping load")
+            logger.warning("Empty details DataFrame, skipping load")
             return False
 
-        ## Next two lines inserted to delete record
-        invoice_id = df_details.iloc[0]['invoice_id']
-        session.sql(f"DELETE FROM INVOICE_LINE_ITEMS_DETAILED_DUP WHERE INVOICE_ID = '{invoice_id}'").collect()
+        # FIXED: Filter to only expected columns for INVOICE_LINE_ITEMS_DETAILED_DUP (13 columns)
+        expected_columns = [
+            'invoice_id', 'item_number', 'ban', 'usoc', 'description',
+            'billing_period', 'units', 'amount', 'tax', 'total',
+            'disputed', 'comment', 'comment_date'
+        ]
         
-        # Convert DataFrame to Snowpark DataFrame
-        snowpark_df = session.create_dataframe(df_details)
+        # Create filtered DataFrame with only expected columns
+        filtered_df = pd.DataFrame()
+        for col in expected_columns:
+            if col in df_details.columns:
+                filtered_df[col] = df_details[col]
+            else:
+                # Add missing columns with default values
+                if col == 'extracted_at':
+                    filtered_df[col] = pd.Timestamp.now()
+                elif col in ['units', 'unit_price', 'amount', 'tax_rate', 'tax', 'total']:
+                    filtered_df[col] = 0.0
+                elif col == 'item_number':
+                    filtered_df[col] = range(1, len(df_details) + 1)  # Auto-generate item numbers
+                else:
+                    filtered_df[col] = None
+
+        logger.info(f"📊 Detail columns before filtering: {len(df_details.columns)}")
+        logger.info(f"📊 Detail columns after filtering: {len(filtered_df.columns)}")
+
+        # Delete existing records
+        invoice_id = filtered_df.iloc[0]['invoice_id']
+        try:
+            session.sql(f"DELETE FROM INVOICE_LINE_ITEMS_DETAILED_DUP WHERE INVOICE_ID = '{invoice_id}'").collect()
+        except Exception as delete_error:
+            logger.warning(f"⚠️ Could not delete existing detail records: {delete_error}")
         
-        # Write to INVOICE_LINE_ITEMS_DETAILED_DUP table
-        snowpark_df.write.mode("append").save_as_table("INVOICE_LINE_ITEMS_DETAILED_DUP")
+        # Convert DataFrame to Snowpark DataFrame with error handling
+        try:
+            snowpark_df = session.create_dataframe(filtered_df)
+        except Exception as df_error:
+            logger.error(f"❌ Error creating Snowpark DataFrame for details: {df_error}")
+            logger.error(f"❌ DataFrame dtypes: {filtered_df.dtypes}")
+            logger.error(f"❌ DataFrame sample: {filtered_df.head(1).to_dict()}")
+            return False
         
-        print(f"✅ Successfully loaded {len(df_details)} detail record(s) to INVOICE_LINE_ITEMS_DETAILED_DUP")
-        return True
+        # Write to INVOICE_LINE_ITEMS_DETAILED_DUP table with error handling
+        try:
+            snowpark_df.write.mode("append").save_as_table("INVOICE_LINE_ITEMS_DETAILED_DUP")
+            logger.info(f"✅ Successfully loaded {len(filtered_df)} detail record(s) to INVOICE_LINE_ITEMS_DETAILED_DUP")
+            return True
+        except Exception as write_error:
+            logger.error(f"❌ Error writing details to INVOICE_LINE_ITEMS_DETAILED_DUP: {write_error}")
+            return False
         
     except Exception as e:
-        print(f"❌ Error loading detail data to Snowflake: {e}")
+        logger.error(f"❌ Error loading detail data to Snowflake: {e}")
+        logger.error(f"❌ DataFrame columns: {list(df_details.columns) if not df_details.empty else 'Empty DataFrame'}")
         return False
 
 def create_invoice_header_from_detail(df_details: pd.DataFrame, source_file: str = None) -> pd.DataFrame:
@@ -112,53 +194,71 @@ def create_invoice_header_from_detail(df_details: pd.DataFrame, source_file: str
             'vendorno': None,  # Will be populated by identification
             'documentdate': first_record.get('billing_period', 'UNKNOWN'),  # Same as billing_period
             'invoiced_bu': None,  # Will be populated by identification
-            'processed': 'N'  # Default to 'N' when first loaded
+            'processed': 'N',  # Default to 'N' when first loaded
+            'currency': first_record.get('currency', '')
         }
         
         return pd.DataFrame([header_data])
         
     except Exception as e:
-        print(f"Error creating header from detail: {e}")
+        logger.error(f"Error creating header from detail: {e}")
         return pd.DataFrame()
 
 # Table schema documentation for reference
 def get_table_schemas() -> Dict[str, Dict]:
     """
-    Return expected table schemas for documentation
+    Return ACTUAL table schemas based on working Snowflake tables
     """
     return {
         'INVOICE_HEADER_DUP': {
-            'invoice_id': 'VARCHAR(16777216) NOT NULL',
+            'invoice_id': 'VARCHAR(16777216)',
             'ban': 'VARCHAR(16777216)',
             'billing_period': 'VARCHAR(16777216)',
-            'vendor': 'VARCHAR(16777216)',  # PROVIDER renamed to VENDOR
+            'vendor': 'VARCHAR(16777216)',
             'source_file': 'VARCHAR(16777216)',
-            'invoice_total': 'FLOAT',  # Calculated from Sum(Amount + Tax)
+            'invoice_total': 'FLOAT',
             'created_at': 'TIMESTAMP_NTZ(9)',
-            'transtype': 'VARCHAR(1)',  # No value at this point
-            'batchno': 'VARCHAR(16777216)',  # No value at this point
-            'vendorno': 'VARCHAR(16777216)',  # vendor_code from entity-vendor mapping
-            'documentdate': 'TIMESTAMP_NTZ(9)',  # Same as billing_period
-            'invoiced_bu': 'VARCHAR(16777216)',  # entity_id from identification
-            'processed': 'VARCHAR(1)'  # Default 'N'
+            'transtype': 'VARCHAR(1)',
+            'batchno': 'VARCHAR(16777216)',
+            'vendorno': 'VARCHAR(16777216)',
+            'documentdate': 'TIMESTAMP_NTZ(9)',
+            'invoiced_bu': 'VARCHAR(16777216)',
+            'processed': 'VARCHAR(1)',
+            'currency': 'VARCHAR(3)'  # 14th column
         },
         'INVOICE_LINE_ITEMS_DETAILED_DUP': {
-            'invoice_id': 'VARCHAR',
-            'item_number': 'VARCHAR',
-            'ban': 'VARCHAR',
-            'usoc': 'VARCHAR',
-            'description': 'TEXT',
-            'billing_period': 'DATE',
-            'units': 'DECIMAL(10,2)',
-            'unit_price': 'DECIMAL(10,2)',
-            'amount': 'DECIMAL(10,2)',
-            'tax_rate': 'DECIMAL(5,4)',
-            'tax': 'DECIMAL(10,2)',
-            'total': 'DECIMAL(10,2)',
-            'currency': 'VARCHAR(3)',
-            'regional_variant': 'VARCHAR',
-            'vendor_name': 'VARCHAR',
-            'source_file': 'VARCHAR',
-            'extracted_at': 'TIMESTAMP'
+            'invoice_id': 'VARCHAR(16777216)',
+            'item_number': 'VARCHAR(16777216)', 
+            'ban': 'VARCHAR(16777216)',
+            'usoc': 'VARCHAR(16777216)',
+            'description': 'VARCHAR(16777216)',
+            'billing_period': 'VARCHAR(16777216)',
+            'units': 'NUMBER(38,0)',
+            'amount': 'FLOAT',
+            'tax': 'FLOAT',
+            'total': 'FLOAT',
+            'disputed': 'BOOLEAN',
+            'comment': 'VARCHAR(16777216)',
+            'comment_date': 'TIMESTAMP_NTZ(9)'  # 13 columns total
         }
     }
+
+def test_snowflake_connection(session: Session) -> bool:
+    """
+    Test Snowflake connection and table access
+    """
+    try:
+        # Test connection
+        result = session.sql("SELECT 1 as test").collect()
+        logger.info("✅ Snowflake connection test successful")
+        
+        # Test table access
+        header_count = session.sql("SELECT COUNT(*) FROM INVOICE_HEADER_DUP").collect()[0][0]
+        detail_count = session.sql("SELECT COUNT(*) FROM INVOICE_LINE_ITEMS_DETAILED_DUP").collect()[0][0]
+        
+        logger.info(f"✅ Table access test: Header={header_count}, Detail={detail_count}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Snowflake connection/table test failed: {e}")
+        return False
