@@ -1,16 +1,16 @@
-# parsers/headers/digital_realty_usa_header.py - COMPLETE FIXED VERSION
+# parsers/headers/vodafone_uk_header.py - FIXED VERSION  
 """
-Digital Realty USA Header Parser - FIXED VERSION
+Vodafone UK Header Parser - 3-STEP VALIDATION COMPLIANT
 Follows standardized 3-step validation process with NO FALLBACKS
-FIXED: Handles both single-charge and multi-charge invoice layouts
+FIXED: Invoice date extraction and vendor name detection
 """
 
-import pandas as pd
-import re
 import fitz  # PyMuPDF
-import os
-import logging
+import re
+import pandas as pd
 from datetime import datetime
+import logging
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -18,25 +18,25 @@ logger = logging.getLogger(__name__)
 
 def extract_header(pdf_path: str) -> pd.DataFrame:
     """
-    Extract header information from Digital Realty USA invoices
+    Extract header information from Vodafone UK invoice
     Following the standardized 3-step validation process
     """
     try:
-        logger.info(f"🔄 Extracting Digital Realty USA header from: {os.path.basename(pdf_path)}")
+        logger.info(f"🔄 Extracting Vodafone UK header from: {os.path.basename(pdf_path)}")
         
         # STEP 1: Extract basic invoice data
-        invoice_id = extract_invoice_id_usa(pdf_path)
-        invoice_date = extract_invoice_date_usa(pdf_path)
-        ban = extract_ban_usa(pdf_path)
-        invoice_total = extract_invoice_total_usa(pdf_path)
+        invoice_id = extract_invoice_id_from_first_page(pdf_path)
+        invoice_date = extract_invoice_date_from_first_page(pdf_path)  # FIXED
+        ban = extract_ban_from_first_page(pdf_path)
+        invoice_total = extract_invoice_total_from_first_page(pdf_path)
         
         # STEP 2: MANDATORY 3-STEP VALIDATION PROCESS
         # 2A: Extract entity name from invoice and get entity_id
-        entity_name = extract_entity_name_usa(pdf_path)
+        entity_name = extract_entity_name_from_registered_address(pdf_path)
         entity_id = get_entity_id_from_catalog(entity_name)
         
         # 2B: Extract vendor name from invoice and get catalog vendor + currency
-        extracted_vendor_name = extract_vendor_name_usa(pdf_path)
+        extracted_vendor_name = extract_vendor_name_uk(pdf_path)  # FIXED
         vendor_name = get_catalog_vendor_name(extracted_vendor_name)
         currency = get_vendor_currency(vendor_name)
         
@@ -45,13 +45,16 @@ def extract_header(pdf_path: str) -> pd.DataFrame:
         
         # NO FALLBACKS ALLOWED - either found in invoice/catalog or None
         if not invoice_id:
-            logger.warning("⚠️ Digital Realty USA Invoice ID not found - NO FALLBACK")
+            logger.warning("⚠️ Vodafone UK Invoice ID not found - NO FALLBACK")
         
         if not invoice_date:
-            logger.warning("⚠️ Digital Realty USA Invoice date not found - NO FALLBACK")
+            logger.warning("⚠️ Vodafone UK Invoice date not found - NO FALLBACK")
         
         if not ban:
-            logger.warning("⚠️ Digital Realty USA BAN not found - NO FALLBACK")
+            logger.warning("⚠️ Vodafone UK BAN not found - NO FALLBACK")
+        
+        if not entity_name:
+            logger.warning("⚠️ Vodafone UK Entity name not found - NO FALLBACK")
         
         if not entity_id:
             logger.warning(f"⚠️ Entity ID not found for '{entity_name}'")
@@ -81,7 +84,7 @@ def extract_header(pdf_path: str) -> pd.DataFrame:
             'created_at': datetime.now()
         }
         
-        logger.info(f"✅ Digital Realty USA header extracted successfully")
+        logger.info(f"✅ Vodafone UK header extracted successfully")
         logger.info(f"   Invoice ID: {header_data['invoice_id']}")
         logger.info(f"   Vendor: {header_data['vendor']} (using catalog name)")
         logger.info(f"   Entity Extracted: {header_data['entity_name_extracted']} (from invoice)")
@@ -95,320 +98,284 @@ def extract_header(pdf_path: str) -> pd.DataFrame:
         return pd.DataFrame([header_data])
         
     except Exception as e:
-        logger.error(f"❌ Error extracting Digital Realty USA header: {e}")
+        logger.error(f"❌ Error extracting Vodafone UK header: {e}")
         return pd.DataFrame()
 
-def extract_invoice_id_usa(pdf_path: str) -> str:
-    """Extract invoice ID with table layout support"""
+def extract_invoice_id_from_first_page(pdf_path: str) -> str:
+    """Extract invoice ID from first page using 'Your invoice number' pattern"""
     try:
         doc = fitz.open(pdf_path)
-        text = doc[0].get_text().replace('\n', ' ')
-        doc.close()
-        
-        # Table layout patterns (like Equinix)
-        table_patterns = [
-            r'Invoice #\s+(\d+)\s+(\d{1,2}-\w{3}-\d{2,4})',      # "Invoice # [id] [date]"
-            r'Invoice Number\s+(\d+)\s+(\d{1,2}-\w{3}-\d{2,4})', # "Invoice Number [id] [date]"
-        ]
-        
-        for pattern in table_patterns:
-            match = re.search(pattern, text)
-            if match:
-                invoice_id = match.group(1)
-                logger.info(f"✅ Found Digital Realty USA invoice ID (table layout): {invoice_id}")
-                return invoice_id
-        
-        # Standard patterns
-        standard_patterns = [
-            r'Invoice #:\s*(\d+)',
-            r'Invoice Number:\s*(\d+)',
-            r'Invoice #\s+(\d+)',
-            r'Invoice Number\s+(\d+)',
-        ]
-        
-        for pattern in standard_patterns:
-            match = re.search(pattern, text)
-            if match:
-                invoice_id = match.group(1)
-                logger.info(f"✅ Found Digital Realty USA invoice ID (standard): {invoice_id}")
-                return invoice_id
-        
-        logger.warning("❌ Digital Realty USA Invoice ID not found")
-        return None
-        
-    except Exception as e:
-        logger.error(f"❌ Error extracting Digital Realty USA invoice ID: {e}")
-        return None
-
-def extract_invoice_date_usa(pdf_path: str) -> str:
-    """Extract invoice date with table layout support"""
-    try:
-        doc = fitz.open(pdf_path)
-        text = doc[0].get_text().replace('\n', ' ')
-        doc.close()
-        
-        # Table layout patterns (like Equinix)
-        table_patterns = [
-            r'Invoice Date\s+(\d+)\s+(\d{1,2}-\w{3}-\d{4})',  # "Invoice Date [id] [date]" 4-digit
-            r'Invoice Date\s+(\d+)\s+(\d{1,2}-\w{3}-\d{2})',  # "Invoice Date [id] [date]" 2-digit
-        ]
-        
-        for pattern in table_patterns:
-            match = re.search(pattern, text)
-            if match:
-                date_str = match.group(2)  # Take the date part (group 2)
-                try:
-                    if len(date_str.split('-')[-1]) == 2:
-                        parsed_date = datetime.strptime(date_str, "%d-%b-%y")
-                    else:
-                        parsed_date = datetime.strptime(date_str, "%d-%b-%Y")
-                    formatted_date = parsed_date.strftime("%Y-%m-%d")
-                    logger.info(f"✅ Found Digital Realty USA date (table layout): {date_str} → {formatted_date}")
-                    return formatted_date
-                except ValueError:
-                    logger.info(f"✅ Found Digital Realty USA date (table layout): {date_str}")
-                    return date_str
-        
-        # Standard patterns
-        standard_patterns = [
-            r'Invoice Date:\s*(\d{2}-[A-Z]{3}-\d{4})',
-            r'Invoice Date:\s*(\d{2}-[A-Z]{3}-\d{2})',
-            r'Invoice Date\s+(\d{2}-[A-Z]{3}-\d{4})',
-            r'Invoice Date\s+(\d{2}-[A-Z]{3}-\d{2})',
-        ]
-        
-        for pattern in standard_patterns:
-            match = re.search(pattern, text)
-            if match:
-                date_str = match.group(1)
-                try:
-                    if len(date_str.split('-')[-1]) == 2:
-                        parsed_date = datetime.strptime(date_str, "%d-%b-%y")
-                    else:
-                        parsed_date = datetime.strptime(date_str, "%d-%b-%Y")
-                    formatted_date = parsed_date.strftime("%Y-%m-%d")
-                    logger.info(f"✅ Found Digital Realty USA date (standard): {date_str} → {formatted_date}")
-                    return formatted_date
-                except ValueError:
-                    logger.info(f"✅ Found Digital Realty USA date (standard): {date_str}")
-                    return date_str
-        
-        logger.warning("❌ Digital Realty USA Invoice date not found")
-        return None
-        
-    except Exception as e:
-        logger.error(f"❌ Error extracting Digital Realty USA invoice date: {e}")
-        return None
-
-def extract_ban_usa(pdf_path: str) -> str:
-    """Extract account number (BAN)"""
-    try:
-        doc = fitz.open(pdf_path)
-        text = doc[0].get_text()
-        doc.close()
-        
-        lines = text.split('\n')
-        
-        # Look for Account # label and find number in subsequent lines
-        for i, line in enumerate(lines):
-            if 'Account #:' in line:
-                # Check next few lines for the number
-                for j in range(i + 1, min(i + 4, len(lines))):
-                    next_line = lines[j].strip()
-                    # Look for 6-digit number pattern
-                    number_match = re.search(r'(\b\d{6}\b)', next_line)
-                    if number_match:
-                        ban = number_match.group(1)
-                        logger.info(f"✅ Found Digital Realty USA BAN: {ban}")
-                        return ban
-        
-        # Direct pattern search
-        ban_patterns = [
-            r'Account #:\s*(\d+)',
-            r'Account Number:\s*(\d+)',
-            r'\b(\d{6})\b',  # 6-digit pattern
-        ]
-        
-        for pattern in ban_patterns:
-            match = re.search(pattern, text)
-            if match:
-                ban = match.group(1)
-                logger.info(f"✅ Found Digital Realty USA BAN (pattern): {ban}")
-                return ban
-        
-        logger.warning("❌ Digital Realty USA BAN not found")
-        return None
-        
-    except Exception as e:
-        logger.error(f"❌ Error extracting Digital Realty USA BAN: {e}")
-        return None
-
-def extract_invoice_total_usa(pdf_path: str) -> float:
-    """Extract invoice total - FIXED to check both first page and second-to-last page"""
-    try:
-        doc = fitz.open(pdf_path)
-        
-        # STRATEGY 1: Try first page first (single-charge invoices)
         first_page_text = doc[0].get_text()
-        total = _extract_total_from_text(first_page_text, "first page")
-        if total > 0:
-            doc.close()
-            return total
-        
-        # STRATEGY 2: Try second-to-last page (multi-charge invoices)
-        if len(doc) >= 2:
-            second_last_page_text = doc[-2].get_text()
-            total = _extract_total_from_text(second_last_page_text, "second-to-last page")
-            if total > 0:
-                doc.close()
-                return total
-        
-        # STRATEGY 3: Try last page as final fallback
-        if len(doc) >= 1:
-            last_page_text = doc[-1].get_text()
-            total = _extract_total_from_text(last_page_text, "last page")
-            if total > 0:
-                doc.close()
-                return total
-        
         doc.close()
-        logger.warning("❌ Digital Realty USA Invoice total not found on any page")
-        return 0.0
+        
+        lines = [line.strip() for line in first_page_text.splitlines() if line.strip()]
+        
+        for idx, line in enumerate(lines):
+            if line.strip() == "Your invoice number" and idx + 1 < len(lines):
+                invoice_id = lines[idx + 1].strip()
+                logger.info(f"✅ Found Vodafone UK invoice ID: {invoice_id}")
+                return invoice_id
+        
+        logger.warning("❌ Vodafone UK Invoice ID not found using 'Your invoice number' pattern")
+        return None
         
     except Exception as e:
-        logger.error(f"❌ Error extracting Digital Realty USA invoice total: {e}")
-        return 0.0
+        logger.error(f"❌ Error extracting Vodafone UK invoice ID: {e}")
+        return None
 
-def _extract_total_from_text(page_text: str, page_description: str) -> float:
-    """Extract total amount from page text"""
+def extract_invoice_date_from_first_page(pdf_path: str) -> str:
+    """
+    FIXED: Extract invoice date from first page - handles Vodafone UK format
+    The date appears at top of page after "Invoice" without a label
+    Format: "Invoice\n01 Jun 2025"
+    """
     try:
-        logger.info(f"   🔍 Checking {page_description} for 'To be paid' amount...")
+        doc = fitz.open(pdf_path)
+        first_page_text = doc[0].get_text()
+        doc.close()
         
-        lines = page_text.split('\n')
+        lines = [line.strip() for line in first_page_text.splitlines() if line.strip()]
         
-        # Look for "To be paid" amount
-        for i, line in enumerate(lines):
-            line_clean = line.strip()
-            
-            if 'To be paid' in line_clean:
-                logger.info(f"   ✅ Found 'To be paid' on {page_description}: {line_clean}")
+        logger.info("🔍 Looking for Vodafone UK invoice date patterns...")
+        
+        # PRIMARY PATTERN: Date appears immediately after "Invoice" line
+        for idx, line in enumerate(lines):
+            if line.strip() == "Invoice" and idx + 1 < len(lines):
+                potential_date = lines[idx + 1].strip()
+                logger.info(f"   Found line after 'Invoice': '{potential_date}'")
                 
-                # First try to extract amount from same line
-                amount_match = re.search(r'USD\s*([\d,]+\.?\d*)', line_clean)
-                if not amount_match:
-                    amount_match = re.search(r'([\d,]+\.\d{2})', line_clean)
-                
-                if amount_match:
+                # Check if this looks like a date (DD Mon YYYY format)
+                date_pattern = r'^\d{1,2}\s+\w{3}\s+\d{4}$'
+                if re.match(date_pattern, potential_date):
                     try:
-                        total = float(amount_match.group(1).replace(',', ''))
-                        logger.info(f"   ✅ Found total on {page_description}: ${total:,.2f}")
-                        return total
-                    except ValueError:
-                        continue
-                
-                # Check next few lines for amount
-                for j in range(i + 1, min(i + 5, len(lines))):
-                    next_line = lines[j].strip()
-                    if next_line:
-                        amount_match = re.search(r'([\d,]+\.\d{2})', next_line)
-                        if amount_match:
-                            try:
-                                total = float(amount_match.group(1).replace(',', ''))
-                                logger.info(f"   ✅ Found total on {page_description} (next line): ${total:,.2f}")
-                                return total
-                            except ValueError:
-                                continue
+                        parsed_date = datetime.strptime(potential_date, "%d %b %Y")
+                        formatted_date = parsed_date.strftime("%Y-%m-%d")
+                        logger.info(f"✅ Found Vodafone UK invoice date: {potential_date} → {formatted_date}")
+                        return formatted_date
+                    except ValueError as e:
+                        logger.warning(f"⚠️ Could not parse date format: {potential_date} ({e})")
+                        return potential_date
         
-        # Alternative patterns for this page
-        alt_patterns = [
-            r'To be paid[:\s]+USD\s*([\d,]+\.?\d*)',
-            r'To be paid[:\s]+([\d,]+\.\d{2})',
-            r'Total[:\s]+USD\s*([\d,]+\.?\d*)',
-            r'USD\s*([\d,]+\.?\d*)\s*(?:Total|Due|Paid)',
-        ]
-        
-        for pattern in alt_patterns:
-            match = re.search(pattern, page_text, re.IGNORECASE)
-            if match:
+        # FALLBACK PATTERN: Traditional "Invoice Date" label
+        for idx, line in enumerate(lines):
+            if line.strip() == "Invoice Date" and idx + 1 < len(lines):
+                date_str = lines[idx + 1].strip()
                 try:
-                    total = float(match.group(1).replace(',', ''))
-                    logger.info(f"   ✅ Found total on {page_description} (pattern): ${total:,.2f}")
-                    return total
+                    parsed_date = datetime.strptime(date_str, "%d %b %Y")
+                    formatted_date = parsed_date.strftime("%Y-%m-%d")
+                    logger.info(f"✅ Found Vodafone UK invoice date (fallback): {date_str} → {formatted_date}")
+                    return formatted_date
+                except ValueError:
+                    logger.warning(f"⚠️ Could not parse Vodafone UK date format: {date_str}")
+                    return date_str
+        
+        # REGEX FALLBACK: Look for date pattern anywhere in first 10 lines
+        for line in lines[:10]:
+            date_match = re.search(r'\b(\d{1,2}\s+\w{3}\s+\d{4})\b', line)
+            if date_match:
+                date_str = date_match.group(1)
+                try:
+                    parsed_date = datetime.strptime(date_str, "%d %b %Y")
+                    formatted_date = parsed_date.strftime("%Y-%m-%d")
+                    logger.info(f"✅ Found Vodafone UK date (regex): {date_str} → {formatted_date}")
+                    return formatted_date
                 except ValueError:
                     continue
         
-        logger.info(f"   ⚠️ No 'To be paid' amount found on {page_description}")
-        return 0.0
-        
-    except Exception as e:
-        logger.error(f"   ❌ Error extracting total from {page_description}: {e}")
-        return 0.0
-
-def extract_entity_name_usa(pdf_path: str) -> str:
-    """Extract entity/customer name from Customer Legal Entity section"""
-    try:
-        doc = fitz.open(pdf_path)
-        text = doc[0].get_text()
-        doc.close()
-        
-        # Look for Customer Legal Entity section
-        customer_patterns = [
-            r'Customer Legal Entity\s+.*?\n\s*([A-Za-z\s&,\.]+ Corporation)',
-            r'Customer Legal Entity\s+.*?\n\s*([^\n]+)\s+Corporation',
-            r'([A-Za-z\s&,\.]+ Corporation)',  # Fallback
-        ]
-        
-        for pattern in customer_patterns:
-            match = re.search(pattern, text, re.MULTILINE | re.DOTALL)
-            if match:
-                potential_customer = match.group(1).strip()
-                # Clean up formatting
-                potential_customer = re.sub(r'\s+', ' ', potential_customer)
-                
-                # Add "Corporation" if not already present
-                if not potential_customer.endswith('Corporation'):
-                    potential_customer += ' Corporation'
-                
-                if len(potential_customer) > 5:
-                    logger.info(f"✅ Found Digital Realty USA entity name: {potential_customer}")
-                    return potential_customer
-        
-        logger.warning("❌ Digital Realty USA Entity name not found")
+        logger.warning("❌ Vodafone UK Invoice date not found")
         return None
         
     except Exception as e:
-        logger.error(f"❌ Error extracting Digital Realty USA entity name: {e}")
+        logger.error(f"❌ Error extracting Vodafone UK invoice date: {e}")
         return None
 
-def extract_vendor_name_usa(pdf_path: str) -> str:
-    """Extract vendor name from invoice"""
+def extract_ban_from_first_page(pdf_path: str) -> str:
+    """Extract BAN from first page using 'Your account number' pattern"""
     try:
         doc = fitz.open(pdf_path)
-        text = doc[0].get_text()
+        first_page_text = doc[0].get_text()
         doc.close()
         
-        # Look for Digital Realty USA patterns
-        patterns = [
-            r'(Telx - New York, LLC)',
-            r'(Digital Realty)',
-            r'(Telx)',
+        lines = [line.strip() for line in first_page_text.splitlines() if line.strip()]
+        
+        for idx, line in enumerate(lines):
+            if line.strip() == "Your account number" and idx + 1 < len(lines):
+                ban = lines[idx + 1].strip()
+                logger.info(f"✅ Found Vodafone UK BAN: {ban}")
+                return ban
+        
+        logger.warning("❌ Vodafone UK BAN not found using 'Your account number' pattern")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Error extracting Vodafone UK BAN: {e}")
+        return None
+
+def extract_entity_name_from_registered_address(pdf_path: str) -> str:
+    """Extract entity name from 'Your registered address:' line"""
+    try:
+        doc = fitz.open(pdf_path)
+        first_page_text = doc[0].get_text()
+        doc.close()
+        
+        # Look for the registered address pattern
+        pattern = r'Your registered address:\s*([^,]+),'
+        match = re.search(pattern, first_page_text, re.IGNORECASE)
+        
+        if match:
+            entity_name = match.group(1).strip()
+            logger.info(f"✅ Found Vodafone UK entity name from registered address: {entity_name}")
+            return entity_name
+        
+        # Fallback: look for multiline pattern
+        lines = [line.strip() for line in first_page_text.splitlines() if line.strip()]
+        
+        for idx, line in enumerate(lines):
+            if "your registered address:" in line.lower():
+                # Entity name might be on the same line or next line
+                if idx + 1 < len(lines):
+                    next_line = lines[idx + 1].strip()
+                    if ',' in next_line:
+                        entity_name = next_line.split(',')[0].strip()
+                        logger.info(f"✅ Found Vodafone UK entity name (multiline): {entity_name}")
+                        return entity_name
+                
+                # Check if entity name is on same line after colon
+                if ':' in line:
+                    after_colon = line.split(':', 1)[1].strip()
+                    if ',' in after_colon:
+                        entity_name = after_colon.split(',')[0].strip()
+                        logger.info(f"✅ Found Vodafone UK entity name (same line): {entity_name}")
+                        return entity_name
+                break
+        
+        logger.warning("❌ Vodafone UK Entity name not found in registered address")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Error extracting Vodafone UK entity name: {e}")
+        return None
+
+def extract_vendor_name_uk(pdf_path: str) -> str:
+    """
+    FIXED: Extract vendor name from UK invoice
+    Looks for "Vodafone Limited" at the bottom of the page
+    """
+    try:
+        doc = fitz.open(pdf_path)
+        first_page_text = doc[0].get_text()
+        doc.close()
+        
+        logger.info("🔍 Looking for Vodafone UK vendor name patterns...")
+        
+        # PRIMARY PATTERN: "Vodafone Limited" that appears at bottom
+        # From example: "Vodafone Limited, Vodafone House, The Connection, Newbury, Berkshire, RG14 2FN..."
+        vendor_patterns = [
+            r'(Vodafone Limited)(?:,|\s)',  # Most specific - matches "Vodafone Limited,"
+            r'(Vodafone Limited)',          # Exact match
+            r'(Vodafone Business UK)',      # Alternative business name
+            r'(Vodafone UK)',              # Shortened form
         ]
         
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+        for pattern in vendor_patterns:
+            match = re.search(pattern, first_page_text, re.IGNORECASE)
             if match:
                 vendor_name = match.group(1)
-                logger.info(f"✅ Found Digital Realty USA vendor name: {vendor_name}")
+                logger.info(f"✅ Found Vodafone UK vendor name: '{vendor_name}'")
                 return vendor_name
         
-        logger.info("Using default Digital Realty USA vendor name")
-        return "Telx - New York, LLC"
+        # FALLBACK: Look line by line for vendor information
+        lines = [line.strip() for line in first_page_text.splitlines() if line.strip()]
+        
+        # Check last 10 lines for vendor info (typically at bottom)
+        for line in lines[-10:]:
+            if 'vodafone limited' in line.lower():
+                # Extract just "Vodafone Limited" from the line
+                vendor_match = re.search(r'(Vodafone Limited)', line, re.IGNORECASE)
+                if vendor_match:
+                    vendor_name = vendor_match.group(1)
+                    logger.info(f"✅ Found Vodafone UK vendor name (line scan): '{vendor_name}'")
+                    return vendor_name
+        
+        # ADVANCED FALLBACK: Look for any Vodafone reference
+        vodafone_patterns = [
+            r'(Vodafone [^,\n]*Limited[^,\n]*)',
+            r'(Vodafone [^,\n]*UK[^,\n]*)',
+            r'(Vodafone [^,\n]*Business[^,\n]*)',
+        ]
+        
+        for pattern in vodafone_patterns:
+            match = re.search(pattern, first_page_text, re.IGNORECASE)
+            if match:
+                vendor_name = match.group(1).strip()
+                logger.info(f"✅ Found Vodafone UK vendor name (advanced): '{vendor_name}'")
+                return vendor_name
+        
+        logger.warning("❌ Vodafone UK vendor name not found")
+        return None
         
     except Exception as e:
-        logger.error(f"❌ Error extracting Digital Realty USA vendor name: {e}")
-        return "Telx - New York, LLC"
+        logger.error(f"❌ Error extracting Vodafone UK vendor name: {e}")
+        return None
 
-# 3-STEP VALIDATION FUNCTIONS (same as UK version)
+def extract_invoice_total_from_first_page(pdf_path: str) -> float:
+    """Extract invoice total from first page - Vodafone UK format"""
+    try:
+        doc = fitz.open(pdf_path)
+        first_page_text = doc[0].get_text()
+        doc.close()
+        
+        logger.info("🔍 Looking for Vodafone UK invoice total...")
+        
+        # Primary pattern: "This month's charges after VAT 15,238.08"
+        voda_pattern = r"This month's charges after VAT\s+([\d,]+\.?\d*)"
+        match = re.search(voda_pattern, first_page_text, re.IGNORECASE)
+        
+        if match:
+            total_str = match.group(1).replace(',', '')
+            total = float(total_str)
+            logger.info(f"✅ Found Vodafone UK total: {total:,.2f}")
+            return total
+        
+        # Alternative pattern from the example: Look for amount before "GBP" and "Total"
+        # "15,238.08 GBP\nTotal"
+        gbp_total_pattern = r'([\d,]+\.?\d*)\s+GBP\s*\n\s*Total'
+        match = re.search(gbp_total_pattern, first_page_text, re.IGNORECASE)
+        
+        if match:
+            total_str = match.group(1).replace(',', '')
+            total = float(total_str)
+            logger.info(f"✅ Found Vodafone UK total (GBP pattern): {total:,.2f}")
+            return total
+        
+        # Fallback patterns
+        fallback_patterns = [
+            r"Total due[:\s]*£?([\d,]+\.?\d*)",
+            r"Amount due[:\s]*£?([\d,]+\.?\d*)", 
+            r"Invoice total[:\s]*£?([\d,]+\.?\d*)",
+            r"Total amount[:\s]*£?([\d,]+\.?\d*)",
+            r"Balance due[:\s]*£?([\d,]+\.?\d*)",
+            r"Total charges[:\s]*£?([\d,]+\.?\d*)",
+            r"Total[:\s]+([\d,]+\.?\d*)",
+            r"Amount[:\s]+([\d,]+\.?\d*)"
+        ]
+        
+        for pattern in fallback_patterns:
+            match = re.search(pattern, first_page_text, re.IGNORECASE)
+            if match:
+                total_str = match.group(1).replace(',', '')
+                total = float(total_str)
+                logger.info(f"✅ Found Vodafone UK total (fallback): {total:,.2f}")
+                return total
+        
+        logger.warning("❌ Vodafone UK Invoice total not found")
+        return 0.0
+        
+    except Exception as e:
+        logger.error(f"❌ Error extracting Vodafone UK invoice total: {e}")
+        return 0.0
+
+# 3-STEP VALIDATION FUNCTIONS (same as PNG)
 
 def get_entity_id_from_catalog(entity_name: str) -> str:
     """Get Entity ID from ENTITY_CATALOG table by matching entity name - NO FALLBACKS"""
@@ -420,7 +387,7 @@ def get_entity_id_from_catalog(entity_name: str) -> str:
         session = get_snowflake_session()
         
         clean_extracted = clean_entity_name_for_matching(entity_name)
-        logger.info(f"   🔍 Matching Digital Realty USA entity: '{entity_name}' (cleaned: '{clean_extracted}')")
+        logger.info(f"   🔍 Matching Vodafone UK entity: '{entity_name}' (cleaned: '{clean_extracted}')")
         
         query = """
             SELECT ENTITY_ID, ENTITY_NAME
@@ -442,7 +409,7 @@ def get_entity_id_from_catalog(entity_name: str) -> str:
             
             # Strategy 1: Exact match
             if clean_extracted == clean_catalog:
-                logger.info(f"   ✅ Exact Digital Realty USA match: '{entity_name}' → {catalog_entity_id} ({catalog_entity_name})")
+                logger.info(f"   ✅ Exact Vodafone UK match: '{entity_name}' → {catalog_entity_id} ({catalog_entity_name})")
                 return catalog_entity_id
             
             # Strategy 2: Core name match
@@ -450,21 +417,21 @@ def get_entity_id_from_catalog(entity_name: str) -> str:
             catalog_core = extract_core_company_name(clean_catalog)
             
             if extracted_core == catalog_core and len(extracted_core) > 3:
-                logger.info(f"   ✅ Core Digital Realty USA match: '{entity_name}' → {catalog_entity_id} ({catalog_entity_name})")
+                logger.info(f"   ✅ Core Vodafone UK match: '{entity_name}' → {catalog_entity_id} ({catalog_entity_name})")
                 return catalog_entity_id
         
         # Strategy 3: Fuzzy matching for partial matches
         best_match = find_best_fuzzy_match(clean_extracted, result)
         if best_match:
             entity_id, matched_name, similarity = best_match
-            logger.info(f"   ✅ Fuzzy Digital Realty USA match ({similarity:.1%}): '{entity_name}' → {entity_id} ({matched_name})")
+            logger.info(f"   ✅ Fuzzy Vodafone UK match ({similarity:.1%}): '{entity_name}' → {entity_id} ({matched_name})")
             return entity_id
         
-        logger.warning(f"   ⚠️ No Digital Realty USA entity match found for '{entity_name}' in ENTITY_CATALOG")
+        logger.warning(f"   ⚠️ No Vodafone UK entity match found for '{entity_name}' in ENTITY_CATALOG")
         return None
         
     except Exception as e:
-        logger.error(f"   ❌ Error looking up Digital Realty USA entity ID for '{entity_name}': {e}")
+        logger.error(f"   ❌ Error looking up Vodafone UK entity ID for '{entity_name}': {e}")
         return None
 
 def get_catalog_vendor_name(extracted_vendor_name: str) -> str:
@@ -562,17 +529,17 @@ def get_vendor_currency(vendor_name: str) -> str:
         result = session.sql(query).collect()
         if result and result[0][0]:
             currency = result[0][0]
-            logger.info(f"   ✅ Found Digital Realty USA currency from catalog: {currency}")
+            logger.info(f"   ✅ Found Vodafone UK currency from catalog: {currency}")
             return currency
         else:
             logger.warning(f"   ⚠️ Vendor '{vendor_name}' not found in VENDOR_CATALOG - NO FALLBACK")
             return None  # NO FALLBACKS - must come from catalog only
             
     except Exception as e:
-        logger.error(f"   ❌ Error looking up Digital Realty USA vendor currency: {e}")
+        logger.error(f"   ❌ Error looking up Vodafone UK vendor currency: {e}")
         return None  # NO FALLBACKS - must come from catalog only
 
-# UTILITY FUNCTIONS (same as UK version)
+# UTILITY FUNCTIONS (same as PNG)
 
 def clean_entity_name_for_matching(name: str) -> str:
     """Clean entity name for better matching"""
@@ -675,6 +642,6 @@ def find_best_fuzzy_match(target: str, catalog_results: list, min_similarity: fl
     return best_match
 
 # Backward compatibility
-def extract_equinix_header(pdf_path: str) -> pd.DataFrame:
+def extract_vodafone_uk_header(pdf_path: str) -> pd.DataFrame:
     """Backward compatibility function - calls extract_header"""
     return extract_header(pdf_path)
