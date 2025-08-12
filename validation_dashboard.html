@@ -76,12 +76,17 @@
             transition: all 0.3s ease;
         }
 
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .btn-primary {
             background: #667eea;
             color: white;
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             background: #5a67d8;
         }
 
@@ -90,7 +95,7 @@
             color: white;
         }
 
-        .btn-success:hover {
+        .btn-success:hover:not(:disabled) {
             background: #059669;
         }
 
@@ -230,7 +235,7 @@
         <a href="/" class="back-btn">← Back to Dashboard</a>
 
         <div class="action-buttons">
-            <button class="btn btn-primary" onclick="validateInvoices()">🔍 Validate All Invoices</button>
+            <button class="btn btn-primary" onclick="validateInvoices()" id="validateBtn">🔍 Validate All Invoices</button>
             <button class="btn btn-success" onclick="processReadyInvoices()" id="processBtn" disabled>🚀 Process Ready Invoices</button>
         </div>
 
@@ -290,7 +295,28 @@
         }
 
         function validateInvoices() {
-            showAlert('🔍 Validating invoices...', 'warning');
+            console.log('validateInvoices function called!');
+            
+            // Disable button and show loading state
+            const validateBtn = document.getElementById('validateBtn');
+            console.log('validateBtn element:', validateBtn);
+            
+            if (!validateBtn) {
+                console.error('Validate button not found!');
+                return;
+            }
+            
+            const originalText = validateBtn.textContent;
+            validateBtn.disabled = true;
+            validateBtn.textContent = '🔄 Running...';
+            
+            // Show initial loading message
+            showAlert('🔍 Validating invoices... This may take a few moments depending on folder size.', 'warning');
+            
+            // Clear previous results
+            document.getElementById('summaryCards').style.display = 'none';
+            document.getElementById('resultsContainer').style.display = 'none';
+            document.getElementById('processBtn').disabled = true;
             
             fetch('/api/validate-invoices', {
                 method: 'POST',
@@ -298,8 +324,17 @@
                     'Content-Type': 'application/json'
                 }
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('Response received:', response);
+                return response.json();
+            })
             .then(data => {
+                console.log('Data received:', data);
+                
+                // Reset button
+                validateBtn.disabled = false;
+                validateBtn.textContent = originalText;
+                
                 if (data.error) {
                     showAlert(`❌ Error: ${data.error}`, 'error');
                     return;
@@ -318,16 +353,21 @@
             })
             .catch(error => {
                 console.error('Error:', error);
-                showAlert('❌ Failed to validate invoices', 'error');
+                
+                // Reset button on error
+                validateBtn.disabled = false;
+                validateBtn.textContent = originalText;
+                
+                showAlert('❌ Failed to validate invoices: ' + error.message, 'error');
             });
         }
 
         function displayValidationResults(data) {
             // Update summary cards
-            document.getElementById('readyCount').textContent = data.ready_for_processing;
-            document.getElementById('attentionCount').textContent = data.requires_attention;
-            document.getElementById('failedCount').textContent = data.failed_identification;
-            document.getElementById('totalCount').textContent = data.total_files;
+            document.getElementById('readyCount').textContent = data.ready_for_processing || 0;
+            document.getElementById('attentionCount').textContent = data.requires_attention || 0;
+            document.getElementById('failedCount').textContent = data.failed_identification || 0;
+            document.getElementById('totalCount').textContent = data.total_files || 0;
             
             // Show summary cards
             document.getElementById('summaryCards').style.display = 'grid';
@@ -336,24 +376,29 @@
             const tbody = document.getElementById('resultsTableBody');
             tbody.innerHTML = '';
             
-            data.details.forEach(detail => {
+            if (data.details && data.details.length > 0) {
+                data.details.forEach(detail => {
+                    const row = tbody.insertRow();
+                    
+                    // Status badge class
+                    let statusClass = 'status-ready';
+                    if (detail.status && detail.status.includes('ATTENTION')) statusClass = 'status-attention';
+                    if (detail.status && (detail.status.includes('FAILED') || detail.status.includes('ERROR'))) statusClass = 'status-failed';
+                    
+                    row.innerHTML = `
+                        <td>${detail.filename || 'Unknown'}</td>
+                        <td><span class="status-badge ${statusClass}">${detail.status || 'Unknown'}</span></td>
+                        <td>${detail.entity_id || '❌'}</td>
+                        <td>${detail.vendor_code || '❌'}</td>
+                        <td>${detail.vendor_name || '❌'}</td>
+                        <td>${detail.currency || '❌'}</td>
+                        <td class="issues-list">${(detail.issues && detail.issues.length > 0) ? detail.issues.join('<br>') : '✅ None'}</td>
+                    `;
+                });
+            } else {
                 const row = tbody.insertRow();
-                
-                // Status badge class
-                let statusClass = 'status-ready';
-                if (detail.status.includes('ATTENTION')) statusClass = 'status-attention';
-                if (detail.status.includes('FAILED') || detail.status.includes('ERROR')) statusClass = 'status-failed';
-                
-                row.innerHTML = `
-                    <td>${detail.filename}</td>
-                    <td><span class="status-badge ${statusClass}">${detail.status}</span></td>
-                    <td>${detail.entity_id || '❌'}</td>
-                    <td>${detail.vendor_code || '❌'}</td>
-                    <td>${detail.vendor_name || '❌'}</td>
-                    <td>${detail.currency || '❌'}</td>
-                    <td class="issues-list">${detail.issues.length > 0 ? detail.issues.join('<br>') : '✅ None'}</td>
-                `;
-            });
+                row.innerHTML = '<td colspan="7" style="text-align: center; color: #6b7280;">No validation data available</td>';
+            }
             
             // Show results container
             document.getElementById('resultsContainer').style.display = 'block';
@@ -391,6 +436,7 @@
 
         // Auto-validate on page load
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, auto-validating...');
             validateInvoices();
         });
     </script>
