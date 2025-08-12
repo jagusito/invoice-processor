@@ -1,4 +1,4 @@
-# parsers/parser_registry.py
+# parsers/parser_registry.py - UPDATED with Vodafone UK support
 """
 Enhanced Multi-Vendor Parser Registry
 Handles both header and detail parsers for multiple vendors and regional variants
@@ -29,25 +29,24 @@ class MultiVendorParserRegistry:
                 'content_patterns': ['Lumen', 'Level 3', 'Lumen Technologies'],
                 'header_parser': 'parsers.headers.lumen_header'
             },
-            
-            ## Previous entry
-            #'digital_realty': {
-            #    'filename_patterns': [r'\.interxion\.', r'interxion'],
-            #    'content_patterns': ['Interxion', 'Digital Realty', 'Digital London'],
-            #   'header_parser': 'parsers.headers.digital_realty_uk_header'
-            #},
-            
             'digital_realty': {
                 'filename_patterns': [r'\.digitalrealty\.', r'digitalrealty', r'\.interxion\.', r'interxion'],
-                'content_patterns': ['Digital London Ltd', 'Teik - New York, LLC', 'Digital Realty', 'Interxion'],
+                'content_patterns': ['Digital London Ltd.', 'Teik - New York, LLC', 'Digital Realty', 'Interxion'],
                 'header_parser': 'parsers.headers.digital_realty_header'
             },
-                        
+            
+            # UPDATED: Vodafone with multi-branch support
             'vodafone': {
-                'filename_patterns': [r'\.vodafone\.', r'vodafone'],
-                'content_patterns': ['Vodafone'],
-                'header_parser': 'parsers.headers.vodafone_header'
+                'filename_patterns': [
+                    r'\.vodafone\.', r'vodafone', r'\.voda\.', r'voda'
+                ],
+                'content_patterns': [
+                    'Vodafone', 'Vodafone Business', 'Your registered address:', 
+                    'Your invoice number'
+                ],
+                'header_parser': 'parsers.headers.vodafone_header'  # Will create router
             },
+            
             'att': {
                 'filename_patterns': [r'\.att\.', r'att'],
                 'content_patterns': ['AT&T', 'ATT'],
@@ -60,8 +59,8 @@ class MultiVendorParserRegistry:
             # Equinix regional variants
             ('equinix', 'Equinix, Inc'): 'parsers.details.equinix_usa_detail',
             ('equinix', 'Equinix (Germany) GmbH'): 'parsers.details.equinix_germany_detail',
-            ('equinix', 'Equinix Singapore Pte Ltd'): 'parsers.details.equinix_singapore_detail',
-            ('equinix', 'Equinix Japan KK'): 'parsers.details.equinix_japan_detail',
+            ('equinix', 'Equinix Singapore Pte. Ltd.'): 'parsers.details.equinix_singapore_detail',
+            ('equinix', 'Equinix Japan K.K.'): 'parsers.details.equinix_japan_detail',
             ('equinix', 'Equinix Australia Pty Ltd'): 'parsers.details.equinix_australia_detail',
             ('equinix', 'Equinix Middle East FZ-LLC'): 'parsers.details.equinix_middle_east_detail',
             ('equinix', 'Equinix, Inc'): 'parsers.details.equinix_usglobe_detail',  # Override for Globe format
@@ -71,17 +70,13 @@ class MultiVendorParserRegistry:
             ('lumen', 'Level 3 Communications'): 'parsers.details.lumen_detail',
             ('lumen', 'Lumen Technologies NL BV'): 'parsers.details.lumen_netherlands_detail',  # Netherlands variant            
             
-            # Digital Realty variants -- Previously
-            #('digital_realty', 'Digital London Ltd.'): 'parsers.details.digital_realty_uk_detail',
-            
             # Digital Realty variants
-            ('digital_realty', 'Digital London Ltd'): 'parsers.details.digital_realty_uk_detail',
-            ('digital_realty', 'Teik - New York, LLC'): 'parsers.details.digital_realty_usa_detail',
+            ('digital_realty', 'Digital London Ltd.'): 'parsers.details.digital_realty_uk_detail',
+            ('digital_realty', 'Telx - New York, LLC'): 'parsers.details.digital_realty_usa_detail',
             
-    
-                        
-            # Vodafone (may have regional variants)
-            ('vodafone', 'Vodafone'): 'parsers.details.vodafone_detail',
+            # UPDATED: Vodafone variants with branch-specific parsers - FIXED VENDOR NAMES
+            ('vodafone', 'Vodafone Limited'): 'parsers.details.vodafone_uk_detail',
+            ('vodafone', 'Vodafone PNG Ltd'): 'parsers.details.vodafone_png_detail',  # FIXED: Match catalog name
             
             # AT&T (may have regional variants)
             ('att', 'AT&T'): 'parsers.details.att_detail',
@@ -126,7 +121,7 @@ class MultiVendorParserRegistry:
         Get header parser for a vendor
         
         Args:
-            vendor: Vendor key (e.g., 'equinix', 'lumen', 'digital_realty')
+            vendor: Vendor key (e.g., 'equinix', 'lumen', 'digital_realty', 'vodafone')
             
         Returns:
             Header parser function or None
@@ -182,6 +177,10 @@ class MultiVendorParserRegistry:
             
             if not module_name:
                 print(f"⚠️ No detail parser found for vendor: {vendor}, variant: {vendor_name}")
+                print(f"🔍 Available mappings:")
+                for key in self.detail_parser_mapping.keys():
+                    if key[0] == vendor:
+                        print(f"    {key}")
                 return None
             
             # Check if already loaded
@@ -392,7 +391,8 @@ if __name__ == "__main__":
         "invoices/sample.lumen.pdf", 
         "invoices/1752029216.centurylink.smb.pdf",  # Netherlands Lumen test
         "invoices/1728531828.interxion.pdf",        # Digital Realty test
-        "invoices/test.vodafone.pdf"
+        "invoices/test.vodafone.uk.pdf",            # UPDATED: Vodafone UK test
+        "invoices/test.vodafone.png.pdf"            # UPDATED: Vodafone PNG test
     ]
     
     for test_file in test_files:
